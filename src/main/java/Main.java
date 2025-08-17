@@ -30,6 +30,16 @@ public class Main {
       return false;
     }
 
+    if ("\\w".equals(pattern)) {
+      for (int i = 0; i < inputLine.length(); i++) {
+        char c = inputLine.charAt(i);
+        if (Character.isLetterOrDigit(c) || c == '_') {
+          return true;
+        }
+      }
+      return false;
+    }
+
     if (pattern.length() == 1) {
       return inputLine.contains(pattern);
     } else {

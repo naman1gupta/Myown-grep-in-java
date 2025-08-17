@@ -56,57 +56,87 @@ public class Main {
         return i == input.length();
       }
 
-      if (pc == '\\') {
-        if (p + 1 >= pattern.length()) {
-          throw new RuntimeException("Unhandled pattern: dangling escape at end of pattern");
-        }
-        char cls = pattern.charAt(p + 1);
-        char ch = input.charAt(i);
-        if (cls == 'd') {
-          if (!Character.isDigit(ch)) {
-            return false;
-          }
-          p += 2;
-          i += 1;
-          continue;
-        } else if (cls == 'w') {
-          if (!(Character.isLetterOrDigit(ch) || ch == '_')) {
-            return false;
-          }
-          p += 2;
-          i += 1;
-          continue;
-        } else {
-          throw new RuntimeException("Unhandled escape: \\" + cls);
-        }
-      }
+      // Determine the current atom and whether it has a '+' quantifier
+      int atomLen = determineAtomLength(pattern, p);
+      boolean hasPlus = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '+';
 
-      if (pc == '[') {
-        int end = pattern.indexOf(']', p + 1);
-        if (end == -1) {
-          throw new RuntimeException("Unhandled pattern: missing closing ]");
-        }
-        boolean negative = (p + 1 < end) && pattern.charAt(p + 1) == '^';
-        int contentStart = negative ? p + 2 : p + 1;
-        String group = pattern.substring(contentStart, end);
-        char ch = input.charAt(i);
-        boolean contains = group.indexOf(ch) != -1;
-        if ((negative && contains) || (!negative && !contains)) {
+      if (hasPlus) {
+        // Must match the atom at least once
+        if (!matchesAtom(input.charAt(i), pattern, p, atomLen)) {
           return false;
         }
-        p = end + 1;
-        i += 1;
-        continue;
-      }
-
-      // Literal character
-      if (input.charAt(i) != pc) {
+        int j = i + 1;
+        while (j < input.length() && matchesAtom(input.charAt(j), pattern, p, atomLen)) {
+          j++;
+        }
+        int nextP = p + atomLen + 1; // skip atom and '+'
+        // Backtrack: try the longest match first, then shorten until one works
+        for (int k = j; k >= i + 1; k--) {
+          if (matchesFrom(input, k, pattern.substring(nextP))) {
+            return true;
+          }
+        }
         return false;
+      } else {
+        // Single occurrence
+        if (!matchesAtom(input.charAt(i), pattern, p, atomLen)) {
+          return false;
+        }
+        i += 1;
+        p += atomLen;
       }
-      i += 1;
-      p += 1;
     }
 
     return true;
+  }
+
+  private static int determineAtomLength(String pattern, int p) {
+    char pc = pattern.charAt(p);
+    if (pc == '\\') {
+      if (p + 1 >= pattern.length()) {
+        throw new RuntimeException("Unhandled pattern: dangling escape at end of pattern");
+      }
+      char cls = pattern.charAt(p + 1);
+      if (cls == 'd' || cls == 'w') {
+        return 2;
+      }
+      throw new RuntimeException("Unhandled escape: \\" + cls);
+    }
+    if (pc == '[') {
+      int end = pattern.indexOf(']', p + 1);
+      if (end == -1) {
+        throw new RuntimeException("Unhandled pattern: missing closing ]");
+      }
+      if (p + 1 == end) {
+        throw new RuntimeException("Unhandled pattern: empty character group []");
+      }
+      return end - p + 1;
+    }
+    // Literal (including space and others). '$' is handled before.
+    return 1;
+  }
+
+  private static boolean matchesAtom(char ch, String pattern, int p, int atomLen) {
+    char pc = pattern.charAt(p);
+    if (pc == '\\') {
+      char cls = pattern.charAt(p + 1);
+      if (cls == 'd') {
+        return Character.isDigit(ch);
+      }
+      if (cls == 'w') {
+        return Character.isLetterOrDigit(ch) || ch == '_';
+      }
+      throw new RuntimeException("Unhandled escape: \\" + cls);
+    }
+    if (pc == '[') {
+      int end = p + atomLen - 1;
+      boolean negative = (p + 1 < end) && pattern.charAt(p + 1) == '^';
+      int contentStart = negative ? p + 2 : p + 1;
+      String group = pattern.substring(contentStart, end);
+      boolean contains = group.indexOf(ch) != -1;
+      return negative ? !contains : contains;
+    }
+    // Literal
+    return ch == pc;
   }
 }

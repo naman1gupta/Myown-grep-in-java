@@ -21,6 +21,11 @@ public class Main {
   }
 
   public static boolean matchPattern(String inputLine, String pattern) {
+    if (pattern.startsWith("^")) {
+      String anchored = pattern.substring(1);
+      return matchesFrom(inputLine, 0, anchored);
+    }
+
     for (int start = 0; start < inputLine.length(); start++) {
       if (matchesFrom(inputLine, start, pattern)) {
         return true;

@@ -21,6 +21,15 @@ public class Main {
   }
 
   public static boolean matchPattern(String inputLine, String pattern) {
+    if ("\\d".equals(pattern)) {
+      for (int i = 0; i < inputLine.length(); i++) {
+        if (Character.isDigit(inputLine.charAt(i))) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     if (pattern.length() == 1) {
       return inputLine.contains(pattern);
     } else {

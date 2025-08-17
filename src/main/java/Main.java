@@ -21,56 +21,76 @@ public class Main {
   }
 
   public static boolean matchPattern(String inputLine, String pattern) {
-    if ("\\d".equals(pattern)) {
-      for (int i = 0; i < inputLine.length(); i++) {
-        if (Character.isDigit(inputLine.charAt(i))) {
-          return true;
+    for (int start = 0; start < inputLine.length(); start++) {
+      if (matchesFrom(inputLine, start, pattern)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean matchesFrom(String input, int startIndex, String pattern) {
+    int i = startIndex;
+    int p = 0;
+
+    while (p < pattern.length()) {
+      if (i >= input.length()) {
+        return false;
+      }
+
+      char pc = pattern.charAt(p);
+
+      if (pc == '\\') {
+        if (p + 1 >= pattern.length()) {
+          throw new RuntimeException("Unhandled pattern: dangling escape at end of pattern");
+        }
+        char cls = pattern.charAt(p + 1);
+        char ch = input.charAt(i);
+        if (cls == 'd') {
+          if (!Character.isDigit(ch)) {
+            return false;
+          }
+          p += 2;
+          i += 1;
+          continue;
+        } else if (cls == 'w') {
+          if (!(Character.isLetterOrDigit(ch) || ch == '_')) {
+            return false;
+          }
+          p += 2;
+          i += 1;
+          continue;
+        } else {
+          throw new RuntimeException("Unhandled escape: \\" + cls);
         }
       }
-      return false;
-    }
 
-    if ("\\w".equals(pattern)) {
-      for (int i = 0; i < inputLine.length(); i++) {
-        char c = inputLine.charAt(i);
-        if (Character.isLetterOrDigit(c) || c == '_') {
-          return true;
+      if (pc == '[') {
+        int end = pattern.indexOf(']', p + 1);
+        if (end == -1) {
+          throw new RuntimeException("Unhandled pattern: missing closing ]");
         }
-      }
-      return false;
-    }
-
-    // Negative character group, e.g., "[^abc]"
-    if (pattern.startsWith("[^") && pattern.endsWith("]")) {
-      String excluded = pattern.substring(2, pattern.length() - 1);
-      for (int i = 0; i < inputLine.length(); i++) {
-        char c = inputLine.charAt(i);
-        if (excluded.indexOf(c) == -1) {
-          return true;
+        boolean negative = (p + 1 < end) && pattern.charAt(p + 1) == '^';
+        int contentStart = negative ? p + 2 : p + 1;
+        String group = pattern.substring(contentStart, end);
+        char ch = input.charAt(i);
+        boolean contains = group.indexOf(ch) != -1;
+        if ((negative && contains) || (!negative && !contains)) {
+          return false;
         }
+        p = end + 1;
+        i += 1;
+        continue;
       }
-      return false;
+
+      // Literal character
+      if (input.charAt(i) != pc) {
+        return false;
+      }
+      i += 1;
+      p += 1;
     }
 
-    // Positive character group, e.g., "[abc]"
-    if (pattern.startsWith("[") && !pattern.startsWith("[^") && pattern.endsWith("]")) {
-      String group = pattern.substring(1, pattern.length() - 1);
-      if (group.isEmpty()) {
-        throw new RuntimeException("Unhandled pattern: empty character group []");
-      }
-      for (int i = 0; i < inputLine.length(); i++) {
-        char c = inputLine.charAt(i);
-        if (group.indexOf(c) != -1) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    if (pattern.length() == 1) {
-      return inputLine.contains(pattern);
-    } else {
-      throw new RuntimeException("Unhandled pattern: " + pattern);
-    }
+    return true;
   }
 }

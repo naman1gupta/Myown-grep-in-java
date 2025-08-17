@@ -40,10 +40,21 @@ public class Main {
 
     while (p < pattern.length()) {
       if (i >= input.length()) {
+        // We ran out of input; the only valid continuation is a sole '$' at end
+        if (pattern.charAt(p) == '$' && p == pattern.length() - 1) {
+          return i == input.length();
+        }
         return false;
       }
 
       char pc = pattern.charAt(p);
+
+      if (pc == '$') {
+        if (p != pattern.length() - 1) {
+          throw new RuntimeException("Unhandled pattern: '$' must be at end of pattern");
+        }
+        return i == input.length();
+      }
 
       if (pc == '\\') {
         if (p + 1 >= pattern.length()) {

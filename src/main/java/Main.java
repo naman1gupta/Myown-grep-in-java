@@ -40,11 +40,8 @@ public class Main {
 
     while (p < pattern.length()) {
       if (i >= input.length()) {
-        // We ran out of input; the only valid continuation is a sole '$' at end
-        if (pattern.charAt(p) == '$' && p == pattern.length() - 1) {
-          return i == input.length();
-        }
-        return false;
+        // No more input: succeed only if remaining pattern can match empty
+        return canMatchEmptyFromPatternIndex(pattern, p);
       }
 
       char pc = pattern.charAt(p);
@@ -56,9 +53,10 @@ public class Main {
         return i == input.length();
       }
 
-      // Determine the current atom and whether it has a '+' quantifier
+      // Determine the current atom and whether it has '+' or '?' quantifier
       int atomLen = determineAtomLength(pattern, p);
       boolean hasPlus = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '+';
+      boolean hasQuestion = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '?';
 
       if (hasPlus) {
         // Must match the atom at least once
@@ -77,6 +75,16 @@ public class Main {
           }
         }
         return false;
+      } else if (hasQuestion) {
+        int nextP = p + atomLen + 1; // skip atom and '?'
+        // Try consuming one if possible (greedy)
+        if (matchesAtom(input.charAt(i), pattern, p, atomLen)) {
+          if (matchesFrom(input, i + 1, pattern.substring(nextP))) {
+            return true;
+          }
+        }
+        // Or consume zero
+        return matchesFrom(input, i, pattern.substring(nextP));
       } else {
         // Single occurrence
         if (!matchesAtom(input.charAt(i), pattern, p, atomLen)) {
@@ -138,5 +146,21 @@ public class Main {
     }
     // Literal
     return ch == pc;
+  }
+
+  private static boolean canMatchEmptyFromPatternIndex(String pattern, int p) {
+    while (p < pattern.length()) {
+      char pc = pattern.charAt(p);
+      if (pc == '$' && p == pattern.length() - 1) {
+        return true;
+      }
+      int atomLen = determineAtomLength(pattern, p);
+      if ((p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '?') {
+        p += atomLen + 1;
+        continue;
+      }
+      return false;
+    }
+    return true;
   }
 }

@@ -120,12 +120,15 @@ public class Main {
       }
       return end - p + 1;
     }
-    // Literal (including space and others). '$' is handled before.
+    // Literal (including '.', space and others). '$' is handled before.
     return 1;
   }
 
   private static boolean matchesAtom(char ch, String pattern, int p, int atomLen) {
     char pc = pattern.charAt(p);
+    if (pc == '.') {
+      return true;
+    }
     if (pc == '\\') {
       char cls = pattern.charAt(p + 1);
       if (cls == 'd') {

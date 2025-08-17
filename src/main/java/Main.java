@@ -40,7 +40,20 @@ public class Main {
       return false;
     }
 
-    if (pattern.startsWith("[") && pattern.endsWith("]")) {
+    // Negative character group, e.g., "[^abc]"
+    if (pattern.startsWith("[^") && pattern.endsWith("]")) {
+      String excluded = pattern.substring(2, pattern.length() - 1);
+      for (int i = 0; i < inputLine.length(); i++) {
+        char c = inputLine.charAt(i);
+        if (excluded.indexOf(c) == -1) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    // Positive character group, e.g., "[abc]"
+    if (pattern.startsWith("[") && !pattern.startsWith("[^") && pattern.endsWith("]")) {
       String group = pattern.substring(1, pattern.length() - 1);
       if (group.isEmpty()) {
         throw new RuntimeException("Unhandled pattern: empty character group []");

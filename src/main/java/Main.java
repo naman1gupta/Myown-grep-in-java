@@ -40,6 +40,20 @@ public class Main {
       return false;
     }
 
+    if (pattern.startsWith("[") && pattern.endsWith("]")) {
+      String group = pattern.substring(1, pattern.length() - 1);
+      if (group.isEmpty()) {
+        throw new RuntimeException("Unhandled pattern: empty character group []");
+      }
+      for (int i = 0; i < inputLine.length(); i++) {
+        char c = inputLine.charAt(i);
+        if (group.indexOf(c) != -1) {
+          return true;
+        }
+      }
+      return false;
+    }
+
     if (pattern.length() == 1) {
       return inputLine.contains(pattern);
     } else {

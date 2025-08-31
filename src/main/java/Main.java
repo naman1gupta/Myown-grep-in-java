@@ -2,6 +2,8 @@ import java.io.IOException;
 import java.util.Scanner;
 import java.util.ArrayList;
 import java.util.List;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
 /**
  * Interface for pattern matching components
@@ -148,11 +150,16 @@ class SequencePattern implements PatternMatcher {
             return matchOneOrMoreWithBacktrack(input, position, patternIndex, captures);
         }
         
+        // Special handling for ZeroOrMorePattern to enable backtracking
+        if (currentPattern instanceof ZeroOrMorePattern) {
+            return matchZeroOrMoreWithBacktrack(input, position, patternIndex, captures);
+        }
+        
         // Also check for OneOrMorePattern inside CapturingGroupPattern
         if (currentPattern instanceof CapturingGroupPattern) {
             CapturingGroupPattern cgp = (CapturingGroupPattern) currentPattern;
-            if (containsOneOrMorePattern(cgp)) {
-                return matchCapturingGroupWithOneOrMore(input, position, patternIndex, captures, cgp);
+            if (containsOneOrMorePattern(cgp) || containsZeroOrMorePattern(cgp)) {
+                return matchCapturingGroupWithQuantifier(input, position, patternIndex, captures, cgp);
             }
         }
         
@@ -234,6 +241,61 @@ class SequencePattern implements PatternMatcher {
         return pattern.getInnerPattern();
     }
     
+    private MatchResult matchZeroOrMoreWithBacktrack(String input, int position, int patternIndex, List<String> captures) {
+        ZeroOrMorePattern quantPattern = (ZeroOrMorePattern) patterns.get(patternIndex);
+        PatternMatcher innerPattern = getInnerPattern(quantPattern);
+        
+        // Collect all possible end positions for the * quantifier (including position 0 - zero matches)
+        List<Integer> possibleEnds = new ArrayList<>();
+        List<String> tempCaptures = new ArrayList<>(captures);
+        
+        // Zero matches is always an option
+        possibleEnds.add(position);
+        
+        // Try to match as many times as possible
+        int currentPos = position;
+        while (currentPos < input.length()) {
+            List<String> nextTempCaptures = new ArrayList<>(tempCaptures);
+            MatchResult next = innerPattern.match(input, currentPos, nextTempCaptures);
+            if (!next.matched) {
+                break;
+            }
+            tempCaptures = nextTempCaptures;
+            currentPos = next.endPosition;
+            possibleEnds.add(currentPos);
+        }
+        
+        // Try from longest to shortest (backtracking)
+        for (int i = possibleEnds.size() - 1; i >= 0; i--) {
+            int endPos = possibleEnds.get(i);
+            
+            // Re-create the captures state for this specific length
+            List<String> backtrackCaptures = new ArrayList<>(captures);
+            int tempPos = position;
+            
+            // Re-execute the * pattern up to this specific end position
+            for (int j = 0; j < i; j++) {  // Note: i iterations, not i+1, since possibleEnds[0] is zero matches
+                MatchResult match = innerPattern.match(input, tempPos, backtrackCaptures);
+                if (!match.matched) break;
+                tempPos = match.endPosition;
+            }
+            
+            MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1, backtrackCaptures);
+            if (remainingResult.matched) {
+                // Update original captures only on success
+                captures.clear();
+                captures.addAll(backtrackCaptures);
+                return remainingResult;
+            }
+        }
+        
+        return MatchResult.failure();
+    }
+    
+    private PatternMatcher getInnerPattern(ZeroOrMorePattern pattern) {
+        return pattern.getInnerPattern();
+    }
+    
     private boolean containsOneOrMorePattern(CapturingGroupPattern cgp) {
         // Use reflection to check if the inner pattern is OneOrMorePattern
         try {
@@ -242,37 +304,68 @@ class SequencePattern implements PatternMatcher {
             PatternMatcher innerPattern = (PatternMatcher) field.get(cgp);
             return innerPattern instanceof OneOrMorePattern;
         } catch (Exception e) {
+          return false;
+        }
+    }
+    
+    private boolean containsZeroOrMorePattern(CapturingGroupPattern cgp) {
+        // Use reflection to check if the inner pattern is ZeroOrMorePattern
+        try {
+            java.lang.reflect.Field field = CapturingGroupPattern.class.getDeclaredField("pattern");
+            field.setAccessible(true);
+            PatternMatcher innerPattern = (PatternMatcher) field.get(cgp);
+            return innerPattern instanceof ZeroOrMorePattern;
+        } catch (Exception e) {
             return false;
         }
     }
     
-    private MatchResult matchCapturingGroupWithOneOrMore(String input, int position, int patternIndex, 
+    private MatchResult matchCapturingGroupWithQuantifier(String input, int position, int patternIndex, 
                                                        List<String> captures, CapturingGroupPattern cgp) {
         try {
-            // Get the inner OneOrMorePattern
+            // Get the inner quantifier pattern
             java.lang.reflect.Field patternField = CapturingGroupPattern.class.getDeclaredField("pattern");
             patternField.setAccessible(true);
-            OneOrMorePattern oneOrMore = (OneOrMorePattern) patternField.get(cgp);
+            PatternMatcher quantifierPattern = (PatternMatcher) patternField.get(cgp);
             
             java.lang.reflect.Field indexField = CapturingGroupPattern.class.getDeclaredField("groupIndex");
             indexField.setAccessible(true);
             int groupIndex = (Integer) indexField.get(cgp);
             
-            // Implement backtracking for the capturing group with OneOrMore
-            PatternMatcher innerPattern = oneOrMore.getInnerPattern();
+            // Implement backtracking for the capturing group with quantifier
+            PatternMatcher innerPattern;
+            boolean isZeroOrMore = quantifierPattern instanceof ZeroOrMorePattern;
             
-            // Collect all possible end positions for the + quantifier
+            if (isZeroOrMore) {
+                innerPattern = ((ZeroOrMorePattern) quantifierPattern).getInnerPattern();
+            } else {
+                innerPattern = ((OneOrMorePattern) quantifierPattern).getInnerPattern();
+            }
+            
+            // Collect all possible end positions for the quantifier
             List<Integer> possibleEnds = new ArrayList<>();
             List<String> tempCaptures = new ArrayList<>(captures);
             
-            // Must match at least once
-            MatchResult first = innerPattern.match(input, position, tempCaptures);
-            if (!first.matched) {
-                return MatchResult.failure();
+            int currentPos = position;
+            
+            if (isZeroOrMore) {
+                // Zero matches is always an option for *
+                possibleEnds.add(currentPos);
             }
             
-            int currentPos = first.endPosition;
-            possibleEnds.add(currentPos);
+            // Must match at least once for +, optional for *
+            MatchResult first = innerPattern.match(input, position, tempCaptures);
+            if (!first.matched) {
+                if (isZeroOrMore) {
+                    // Zero matches is OK for *, continue with just the zero option
+                } else {
+                    // Must match at least once for +
+                    return MatchResult.failure();
+                }
+            } else {
+                currentPos = first.endPosition;
+                possibleEnds.add(currentPos);
+            }
             
             // Continue matching greedily to find all possible ends
             while (currentPos < input.length()) {
@@ -299,9 +392,10 @@ class SequencePattern implements PatternMatcher {
                     backtrackCaptures.add(null);
                 }
                 
-                // Re-execute the + pattern up to this specific end position to capture correctly
+                // Re-execute the quantifier pattern up to this specific end position to capture correctly
                 int tempPos = position;
-                for (int j = 0; j < i + 1; j++) {
+                int iterationsNeeded = isZeroOrMore ? i : i + 1;
+                for (int j = 0; j < iterationsNeeded; j++) {
                     MatchResult match = innerPattern.match(input, tempPos, backtrackCaptures);
                     if (!match.matched) break;
                     tempPos = match.endPosition;
@@ -414,6 +508,38 @@ class OneOrMorePattern implements PatternMatcher {
             currentPos = next.endPosition;
         }
         
+        return MatchResult.success(currentPos);
+    }
+}
+
+class ZeroOrMorePattern implements PatternMatcher {
+    private final PatternMatcher pattern;
+    
+    public ZeroOrMorePattern(PatternMatcher pattern) {
+        this.pattern = pattern;
+    }
+    
+    public PatternMatcher getInnerPattern() {
+        return pattern;
+    }
+    
+    @Override
+    public MatchResult match(String input, int position, List<String> captures) {
+        // Zero or more means we can match nothing (success at current position)
+        // But we try to match greedily first
+        
+        int currentPos = position;
+        
+        // Keep matching as much as we can (greedy)
+        while (currentPos < input.length()) {
+            MatchResult next = pattern.match(input, currentPos, captures);
+            if (!next.matched) {
+                break;
+            }
+            currentPos = next.endPosition;
+        }
+        
+        // Always succeeds, at minimum position (zero matches)
         return MatchResult.success(currentPos);
     }
 }
@@ -608,6 +734,11 @@ class PatternFactory {
             } else if (quantifier == '?') {
                 return new ElementParseResult(
                     new ZeroOrOnePattern(baseResult.pattern),
+                    nextPos + 1
+                );
+            } else if (quantifier == '*') {
+                return new ElementParseResult(
+                    new ZeroOrMorePattern(baseResult.pattern),
                     nextPos + 1
                 );
             }
@@ -817,20 +948,28 @@ class PatternFactory {
 
 public class Main {
   public static void main(String[] args){
-    if (args.length != 2 || !args[0].equals("-E")) {
-      System.out.println("Usage: ./your_program.sh -E <pattern>");
+    if ((args.length != 2 && args.length != 3) || !args[0].equals("-E")) {
+      System.out.println("Usage: ./your_program.sh -E <pattern> [filename]");
       System.exit(1);
     }
 
     String pattern = args[1];  
-    Scanner scanner = new Scanner(System.in);
-    String inputLine = scanner.nextLine();
     System.err.println("Logs from your program will appear here!");
 
-    if (matchPattern(inputLine, pattern)) {
-        System.exit(0);
+    if (args.length == 3) {
+      // File mode: search in the specified file
+      String filename = args[2];
+      searchInFile(pattern, filename);
     } else {
-        System.exit(1);
+      // Standard input mode: read from stdin (original behavior)
+      Scanner scanner = new Scanner(System.in);
+      String inputLine = scanner.nextLine();
+      
+      if (matchPattern(inputLine, pattern)) {
+          System.exit(0);
+      } else {
+          System.exit(1);
+      }
     }
   }
 
@@ -853,6 +992,35 @@ public class Main {
       List<String> captures = new ArrayList<>();
       MatchResult result = matcher.match(inputLine, 0, captures);
       return result.matched;
+    }
+  }
+
+  public static void searchInFile(String pattern, String filename) {
+    try {
+      // Read all lines from the file
+      List<String> lines = Files.readAllLines(Paths.get(filename));
+      
+      boolean foundMatch = false;
+      
+      // Check each line against the pattern
+      for (String line : lines) {
+        if (matchPattern(line, pattern)) {
+          // Print the matching line to stdout
+          System.out.println(line);
+          foundMatch = true;
+        }
+      }
+      
+      // Exit with appropriate code
+      if (foundMatch) {
+        System.exit(0);
+      } else {
+        System.exit(1);
+      }
+      
+    } catch (IOException e) {
+      System.err.println("Error reading file: " + filename);
+      System.exit(1);
     }
   }
 }

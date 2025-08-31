@@ -960,7 +960,14 @@ public class Main {
       // File mode: search in the specified file(s)
       String[] filenames = new String[args.length - 2];
       System.arraycopy(args, 2, filenames, 0, args.length - 2);
-      searchInFiles(pattern, filenames);
+      
+      if (filenames.length == 1) {
+        // Single file - no prefix
+        searchInFile(pattern, filenames[0]);
+      } else {
+        // Multiple files - include filename prefix
+        searchInFiles(pattern, filenames);
+      }
     } else {
       // Standard input mode: read from stdin (original behavior)
       Scanner scanner = new Scanner(System.in);

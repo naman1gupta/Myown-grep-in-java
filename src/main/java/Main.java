@@ -162,7 +162,11 @@ public class Main {
           
           return false;
         } else {
-          // Handle + quantifier on simple atom
+          // Handle + quantifier on simple atom (not parentheses)
+          if (pc == '(') {
+            // This should not happen since parentheses are handled above
+            return false;
+          }
           if (!matchesAtom(input.charAt(i), pattern, p, atomLen)) {
             return false;
           }
@@ -260,8 +264,8 @@ public class Main {
     }
     if (pc == '(') {
       // For parentheses, we need to match the entire subpattern
-      // This is handled specially in matchesFrom, so we shouldn't reach here
-      throw new RuntimeException("Parentheses should be handled in matchesFrom");
+      // This should not be called for parentheses groups
+      return false;
     }
     // Literal
     return ch == pc;

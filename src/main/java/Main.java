@@ -948,18 +948,19 @@ class PatternFactory {
 
 public class Main {
   public static void main(String[] args){
-    if ((args.length != 2 && args.length != 3) || !args[0].equals("-E")) {
-      System.out.println("Usage: ./your_program.sh -E <pattern> [filename]");
+    if (args.length < 2 || !args[0].equals("-E")) {
+      System.out.println("Usage: ./your_program.sh -E <pattern> [filename...]");
       System.exit(1);
     }
 
     String pattern = args[1];  
     System.err.println("Logs from your program will appear here!");
 
-    if (args.length == 3) {
-      // File mode: search in the specified file
-      String filename = args[2];
-      searchInFile(pattern, filename);
+    if (args.length > 2) {
+      // File mode: search in the specified file(s)
+      String[] filenames = new String[args.length - 2];
+      System.arraycopy(args, 2, filenames, 0, args.length - 2);
+      searchInFiles(pattern, filenames);
     } else {
       // Standard input mode: read from stdin (original behavior)
       Scanner scanner = new Scanner(System.in);
@@ -992,6 +993,37 @@ public class Main {
       List<String> captures = new ArrayList<>();
       MatchResult result = matcher.match(inputLine, 0, captures);
       return result.matched;
+    }
+  }
+
+  public static void searchInFiles(String pattern, String[] filenames) {
+    boolean foundAnyMatch = false;
+    
+    for (String filename : filenames) {
+      try {
+        // Read all lines from the file
+        List<String> lines = Files.readAllLines(Paths.get(filename));
+        
+        // Check each line against the pattern
+        for (String line : lines) {
+          if (matchPattern(line, pattern)) {
+            // Print the matching line to stdout with filename prefix
+            System.out.println(filename + ":" + line);
+            foundAnyMatch = true;
+          }
+        }
+        
+      } catch (IOException e) {
+        System.err.println("Error reading file: " + filename);
+        System.exit(1);
+      }
+    }
+    
+    // Exit with appropriate code
+    if (foundAnyMatch) {
+      System.exit(0);
+    } else {
+      System.exit(1);
     }
   }
 

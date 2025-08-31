@@ -126,36 +126,39 @@ public class Main {
           String subPattern = pattern.substring(p + 1, p + atomLen - 1);
           int nextP = p + atomLen + 1; // skip atom and '+'
           
-          // Try different numbers of repetitions, starting with the maximum possible
-          for (int repetitions = 1; repetitions <= 5; repetitions++) { // Limit to avoid infinite loops
-            boolean canMatch = true;
+          // Use backtracking approach: try different numbers of repetitions
+          for (int maxReps = 10; maxReps >= 1; maxReps--) {
             int currentPos = i;
+            boolean allMatched = true;
             
-            // Try to match 'repetitions' number of the subpattern
-            for (int rep = 0; rep < repetitions; rep++) {
+            // Try to match exactly maxReps repetitions
+            for (int rep = 0; rep < maxReps && allMatched; rep++) {
               if (currentPos >= input.length()) {
-                canMatch = false;
+                allMatched = false;
                 break;
               }
               
-              // Try to match one instance of the subpattern
+              // Try to find a match for the subpattern at currentPos
               boolean foundMatch = false;
-              for (int endPos = currentPos + 1; endPos <= input.length(); endPos++) {
-                if (matchesFrom(input, currentPos, subPattern)) {
-                  currentPos = endPos;
-                  foundMatch = true;
-                  break;
+              for (int testEnd = currentPos + 1; testEnd <= input.length() && !foundMatch; testEnd++) {
+                String testSubstring = input.substring(currentPos, testEnd);
+                if (matchesFrom(testSubstring, 0, subPattern)) {
+                  // Check if this is a complete match (not part of a longer match)
+                  if (testEnd == input.length() || 
+                      !matchesFrom(input.substring(currentPos, testEnd + 1), 0, subPattern)) {
+                    currentPos = testEnd;
+                    foundMatch = true;
+                  }
                 }
               }
               
               if (!foundMatch) {
-                canMatch = false;
-                break;
+                allMatched = false;
               }
             }
             
-            // If we can match this many repetitions, try to match the rest
-            if (canMatch && matchesFrom(input, currentPos, pattern.substring(nextP))) {
+            // If we successfully matched all repetitions, try to match the rest
+            if (allMatched && matchesFrom(input, currentPos, pattern.substring(nextP))) {
               return true;
             }
           }
@@ -359,6 +362,87 @@ public class Main {
     }
     parts.add(pattern.substring(last));
     return parts;
+  }
+
+  private static int findMatchLength(String input, int startIndex, String pattern) {
+    // Use a more sophisticated approach to find the exact length consumed by the pattern
+    return findConsumedLength(input, startIndex, pattern);
+  }
+  
+  private static int findConsumedLength(String input, int startIndex, String pattern) {
+    // Simulate the matching process to find exactly how many characters are consumed
+    int consumed = 0;
+    int p = 0;
+    int i = startIndex;
+    
+    while (p < pattern.length() && i < input.length()) {
+      char pc = pattern.charAt(p);
+      
+      if (pc == '$') {
+        // End anchor - no more characters should be consumed
+        return consumed;
+      }
+      
+      if (pc == '(') {
+        // Handle parentheses groups
+        int closeParen = findMatchingCloseParen(pattern, p);
+        if (closeParen == -1) {
+          return -1; // Invalid pattern
+        }
+        
+        String subPattern = pattern.substring(p + 1, closeParen);
+        List<String> alternatives = splitByTopLevelOr(subPattern);
+        
+        boolean matched = false;
+        for (String alt : alternatives) {
+          int altConsumed = findConsumedLength(input, i, alt);
+          if (altConsumed > 0) {
+            consumed += altConsumed;
+            i += altConsumed;
+            matched = true;
+            break;
+          }
+        }
+        
+        if (!matched) {
+          return -1; // No alternative matched
+        }
+        
+        p = closeParen + 1;
+        continue;
+      }
+      
+      int atomLen = determineAtomLength(pattern, p);
+      boolean hasPlus = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '+';
+      boolean hasQuestion = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '?';
+      
+      if (hasQuestion) {
+        // Optional - try to match, but don't fail if it doesn't
+        if (i < input.length() && matchesAtom(input.charAt(i), pattern, p, atomLen)) {
+          consumed++;
+          i++;
+        }
+        p += atomLen + 1;
+      } else if (hasPlus) {
+        // This shouldn't happen in our case since we're already in + quantifier handling
+        return -1;
+      } else {
+        // Required single match
+        if (i >= input.length() || !matchesAtom(input.charAt(i), pattern, p, atomLen)) {
+          return -1; // Can't match
+        }
+        consumed++;
+        i++;
+        p += atomLen;
+      }
+    }
+    
+    // Check if we consumed the entire pattern
+    if (p >= pattern.length()) {
+      return consumed;
+    }
+    
+    return -1; // Didn't match complete pattern
   }
 
   private static int findMatchingCloseParen(String pattern, int openParenIndex) {

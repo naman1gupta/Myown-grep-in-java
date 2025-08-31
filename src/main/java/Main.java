@@ -386,11 +386,14 @@ class BackreferencePattern implements PatternMatcher {
 class PatternFactory {
     private int groupCounter = 0;
     
-    public PatternMatcher createPattern(String regex) {
+        public PatternMatcher createPattern(String regex) {
         if (regex == null || regex.isEmpty()) {
             return new EmptyPattern();
         }
-        
+
+        // Reset group counter for each new pattern
+        groupCounter = 0;
+
         // Handle anchors
         if (regex.startsWith("^") && regex.endsWith("$")) {
             String innerRegex = regex.substring(1, regex.length() - 1);
@@ -521,14 +524,15 @@ class PatternFactory {
                    return new ElementParseResult(new LiteralCharacterPattern('('), position + 1);
                }
 
+               // assign group index first, before parsing content
+               int groupIndex = groupCounter++;
+
                String groupContent = regex.substring(position + 1, endPos);
 
                if (groupContent.contains("|")) {
-                   return parseAlternation(groupContent, endPos + 1);
+                   return parseAlternationWithIndex(groupContent, endPos + 1, groupIndex);
                } else {
                    PatternMatcher groupPattern = parsePattern(groupContent);
-                   // wrap in capturing group with proper index
-                   int groupIndex = groupCounter++;
                    return new ElementParseResult(new CapturingGroupPattern(groupPattern, groupIndex), endPos + 1);
                }
            }
@@ -543,6 +547,17 @@ class PatternFactory {
 
                // wrap in capturing group with proper index
                int groupIndex = groupCounter++;
+               return new ElementParseResult(new CapturingGroupPattern(new AlternationPattern(patterns), groupIndex), nextPosition);
+           }
+
+           private ElementParseResult parseAlternationWithIndex(String content, int nextPosition, int groupIndex) {
+               List<String> alternatives = splitOnTopLevelPipe(content);
+               List<PatternMatcher> patterns = new ArrayList<>();
+
+               for (String alt : alternatives) {
+                   patterns.add(parsePattern(alt));
+               }
+
                return new ElementParseResult(new CapturingGroupPattern(new AlternationPattern(patterns), groupIndex), nextPosition);
            }
     

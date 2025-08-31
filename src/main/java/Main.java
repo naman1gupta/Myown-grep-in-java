@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.nio.file.Path;
+import java.nio.file.DirectoryStream;
 
 /**
  * Interface for pattern matching components
@@ -948,25 +950,59 @@ class PatternFactory {
 
 public class Main {
   public static void main(String[] args){
-    if (args.length < 2 || !args[0].equals("-E")) {
-      System.out.println("Usage: ./your_program.sh -E <pattern> [filename...]");
+    if (args.length < 2) {
+      System.out.println("Usage: ./your_program.sh [-r] -E <pattern> [filename...]");
       System.exit(1);
     }
 
-    String pattern = args[1];  
+    boolean recursive = false;
+    int argIndex = 0;
+    
+    // Check for -r flag
+    if (args[argIndex].equals("-r")) {
+      recursive = true;
+      argIndex++;
+    }
+    
+    // Check for -E flag
+    if (argIndex >= args.length || !args[argIndex].equals("-E")) {
+      System.out.println("Usage: ./your_program.sh [-r] -E <pattern> [filename...]");
+      System.exit(1);
+    }
+    argIndex++;
+    
+    // Get pattern
+    if (argIndex >= args.length) {
+      System.out.println("Usage: ./your_program.sh [-r] -E <pattern> [filename...]");
+      System.exit(1);
+    }
+    String pattern = args[argIndex];
+    argIndex++;
+    
     System.err.println("Logs from your program will appear here!");
 
-    if (args.length > 2) {
-      // File mode: search in the specified file(s)
-      String[] filenames = new String[args.length - 2];
-      System.arraycopy(args, 2, filenames, 0, args.length - 2);
-      
-      if (filenames.length == 1) {
-        // Single file - no prefix
-        searchInFile(pattern, filenames[0]);
+    if (argIndex < args.length) {
+      // File/directory mode
+      if (recursive) {
+        // Recursive directory search
+        if (args.length - argIndex != 1) {
+          System.out.println("Usage: ./your_program.sh -r -E <pattern> <directory>");
+          System.exit(1);
+        }
+        String directory = args[argIndex];
+        searchInDirectoryRecursive(pattern, directory);
       } else {
-        // Multiple files - include filename prefix
-        searchInFiles(pattern, filenames);
+        // File mode: search in the specified file(s)
+        String[] filenames = new String[args.length - argIndex];
+        System.arraycopy(args, argIndex, filenames, 0, args.length - argIndex);
+        
+        if (filenames.length == 1) {
+          // Single file - no prefix
+          searchInFile(pattern, filenames[0]);
+        } else {
+          // Multiple files - include filename prefix
+          searchInFiles(pattern, filenames);
+        }
       }
     } else {
       // Standard input mode: read from stdin (original behavior)
@@ -1061,5 +1097,52 @@ public class Main {
       System.err.println("Error reading file: " + filename);
       System.exit(1);
     }
+  }
+
+  public static void searchInDirectoryRecursive(String pattern, String directoryPath) {
+    boolean foundAnyMatch = false;
+    Path directory = Paths.get(directoryPath);
+    
+    if (!Files.exists(directory) || !Files.isDirectory(directory)) {
+      System.err.println("Error: " + directoryPath + " is not a valid directory");
+      System.exit(1);
+    }
+    
+    try {
+      foundAnyMatch = searchInDirectoryRecursiveHelper(pattern, directory, foundAnyMatch);
+    } catch (IOException e) {
+      System.err.println("Error reading directory: " + directoryPath);
+      System.exit(1);
+    }
+    
+    // Exit with appropriate code
+    if (foundAnyMatch) {
+      System.exit(0);
+    } else {
+      System.exit(1);
+    }
+  }
+  
+  private static boolean searchInDirectoryRecursiveHelper(String pattern, Path directory, boolean foundAnyMatch) throws IOException {
+    try (DirectoryStream<Path> stream = Files.newDirectoryStream(directory)) {
+      for (Path entry : stream) {
+        if (Files.isDirectory(entry)) {
+          // Recursively search subdirectories
+          foundAnyMatch = searchInDirectoryRecursiveHelper(pattern, entry, foundAnyMatch);
+        } else if (Files.isRegularFile(entry)) {
+          // Search in regular files
+          List<String> lines = Files.readAllLines(entry);
+          
+          for (String line : lines) {
+            if (matchPattern(line, pattern)) {
+              // Print the matching line to stdout with filename prefix
+              System.out.println(entry.toString() + ":" + line);
+              foundAnyMatch = true;
+            }
+          }
+        }
+      }
+    }
+    return foundAnyMatch;
   }
 }

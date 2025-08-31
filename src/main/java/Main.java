@@ -7,7 +7,7 @@ import java.util.List;
  * Interface for pattern matching components
  */
 interface PatternMatcher {
-    MatchResult match(String input, int position);
+    MatchResult match(String input, int position, List<String> captures);
 }
 
 /**
@@ -36,7 +36,7 @@ class MatchResult {
  */
 class EmptyPattern implements PatternMatcher {
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         return MatchResult.success(position);
     }
 }
@@ -49,7 +49,7 @@ class LiteralCharacterPattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         if (position >= input.length() || input.charAt(position) != character) {
             return MatchResult.failure();
         }
@@ -59,7 +59,7 @@ class LiteralCharacterPattern implements PatternMatcher {
 
 class AnyCharacterPattern implements PatternMatcher {
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         if (position >= input.length()) {
             return MatchResult.failure();
         }
@@ -69,7 +69,7 @@ class AnyCharacterPattern implements PatternMatcher {
 
 class DigitClassPattern implements PatternMatcher {
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         if (position >= input.length() || !Character.isDigit(input.charAt(position))) {
             return MatchResult.failure();
         }
@@ -79,7 +79,7 @@ class DigitClassPattern implements PatternMatcher {
 
 class WordClassPattern implements PatternMatcher {
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         if (position >= input.length()) {
             return MatchResult.failure();
         }
@@ -106,7 +106,7 @@ class CharacterGroupPattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         if (position >= input.length()) {
             return MatchResult.failure();
         }
@@ -132,11 +132,11 @@ class SequencePattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
-        return matchWithBacktrack(input, position, 0);
+    public MatchResult match(String input, int position, List<String> captures) {
+        return matchWithBacktrack(input, position, 0, captures);
     }
     
-    private MatchResult matchWithBacktrack(String input, int position, int patternIndex) {
+    private MatchResult matchWithBacktrack(String input, int position, int patternIndex, List<String> captures) {
         if (patternIndex >= patterns.size()) {
             return MatchResult.success(position);
         }
@@ -145,23 +145,23 @@ class SequencePattern implements PatternMatcher {
         
         // Special handling for OneOrMorePattern to enable backtracking
         if (currentPattern instanceof OneOrMorePattern) {
-            return matchOneOrMoreWithBacktrack(input, position, patternIndex);
+            return matchOneOrMoreWithBacktrack(input, position, patternIndex, captures);
         }
         
-        MatchResult result = currentPattern.match(input, position);
+        MatchResult result = currentPattern.match(input, position, captures);
         if (!result.matched) {
             return MatchResult.failure();
         }
         
-        return matchWithBacktrack(input, result.endPosition, patternIndex + 1);
+        return matchWithBacktrack(input, result.endPosition, patternIndex + 1, captures);
     }
     
-    private MatchResult matchOneOrMoreWithBacktrack(String input, int position, int patternIndex) {
+    private MatchResult matchOneOrMoreWithBacktrack(String input, int position, int patternIndex, List<String> captures) {
         OneOrMorePattern quantPattern = (OneOrMorePattern) patterns.get(patternIndex);
         PatternMatcher innerPattern = getInnerPattern(quantPattern);
         
         // Must match at least once
-        MatchResult first = innerPattern.match(input, position);
+        MatchResult first = innerPattern.match(input, position, captures);
         if (!first.matched) {
             return MatchResult.failure();
         }
@@ -173,7 +173,7 @@ class SequencePattern implements PatternMatcher {
         
         // Collect all possible end positions for the + quantifier
         while (currentPos < input.length()) {
-            MatchResult next = innerPattern.match(input, currentPos);
+            MatchResult next = innerPattern.match(input, currentPos, captures);
             if (!next.matched) {
                 break;
             }
@@ -184,7 +184,7 @@ class SequencePattern implements PatternMatcher {
         // Try from longest to shortest (backtracking)
         for (int i = possibleEnds.size() - 1; i >= 0; i--) {
             int endPos = possibleEnds.get(i);
-            MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1);
+            MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1, captures);
             if (remainingResult.matched) {
                 return remainingResult;
             }
@@ -206,9 +206,9 @@ class AlternationPattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         for (PatternMatcher alternative : alternatives) {
-            MatchResult result = alternative.match(input, position);
+            MatchResult result = alternative.match(input, position, captures);
             if (result.matched) {
                 return result;
             }
@@ -228,8 +228,8 @@ class ZeroOrOnePattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
-        MatchResult result = pattern.match(input, position);
+    public MatchResult match(String input, int position, List<String> captures) {
+        MatchResult result = pattern.match(input, position, captures);
         if (result.matched) {
             return result;
         }
@@ -250,24 +250,18 @@ class OneOrMorePattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
-        // Must match at least once
-        MatchResult first = pattern.match(input, position);
+    public MatchResult match(String input, int position, List<String> captures) {
+        // gotta match at least once
+        MatchResult first = pattern.match(input, position, captures);
         if (!first.matched) {
             return MatchResult.failure();
         }
         
-        // For + quantifier, we need to be greedy but this is handled at a higher level
-        // in the context of the full pattern matching. For now, just return the first match.
-        // The proper implementation would require the context of the remaining pattern
-        // to do backtracking, which our current architecture doesn't support well.
-        
-        // Try to match greedily first
+        // keep matching as much as we can
         int currentPos = first.endPosition;
         
-        // Try to match as many more times as possible (greedy)
         while (currentPos < input.length()) {
-            MatchResult next = pattern.match(input, currentPos);
+            MatchResult next = pattern.match(input, currentPos, captures);
             if (!next.matched) {
                 break;
             }
@@ -289,11 +283,11 @@ class StartAnchorPattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
+    public MatchResult match(String input, int position, List<String> captures) {
         if (position != 0) {
             return MatchResult.failure();
         }
-        return pattern.match(input, position);
+        return pattern.match(input, position, captures);
     }
 }
 
@@ -305,8 +299,8 @@ class EndAnchorPattern implements PatternMatcher {
     }
     
     @Override
-    public MatchResult match(String input, int position) {
-        MatchResult result = pattern.match(input, position);
+    public MatchResult match(String input, int position, List<String> captures) {
+        MatchResult result = pattern.match(input, position, captures);
         if (!result.matched) {
             return MatchResult.failure();
         }
@@ -314,6 +308,72 @@ class EndAnchorPattern implements PatternMatcher {
         // Check if we've reached the end of input
         if (result.endPosition == input.length()) {
             return result;
+        }
+        
+        return MatchResult.failure();
+    }
+}
+
+/**
+ * Capturing group pattern - stores what it matches
+ */
+class CapturingGroupPattern implements PatternMatcher {
+    private final PatternMatcher pattern;
+    private final int groupIndex;
+    
+    public CapturingGroupPattern(PatternMatcher pattern, int groupIndex) {
+        this.pattern = pattern;
+        this.groupIndex = groupIndex;
+    }
+    
+    @Override
+    public MatchResult match(String input, int position, List<String> captures) {
+        // make sure we have enough space in captures list
+        while (captures.size() <= groupIndex) {
+            captures.add(null);
+        }
+        
+        int startPos = position;
+        MatchResult result = pattern.match(input, position, captures);
+        
+        if (result.matched) {
+            // store what we matched
+            String matchedText = input.substring(startPos, result.endPosition);
+            captures.set(groupIndex, matchedText);
+        }
+        
+        return result;
+    }
+}
+
+/**
+ * Backreference pattern - matches the same text as a captured group
+ */
+class BackreferencePattern implements PatternMatcher {
+    private final int groupIndex;
+    
+    public BackreferencePattern(int groupIndex) {
+        this.groupIndex = groupIndex;
+    }
+    
+    @Override
+    public MatchResult match(String input, int position, List<String> captures) {
+        // check if we have the captured group
+        if (groupIndex >= captures.size() || captures.get(groupIndex) == null) {
+            return MatchResult.failure();
+        }
+        
+        String capturedText = captures.get(groupIndex);
+        
+        // check if we have enough characters left
+        if (position + capturedText.length() > input.length()) {
+            return MatchResult.failure();
+        }
+        
+        // check if the text matches
+        String inputSubstring = input.substring(position, position + capturedText.length());
+        if (inputSubstring.equals(capturedText)) {
+            return MatchResult.success(position + capturedText.length());
         }
         
         return MatchResult.failure();
@@ -410,21 +470,23 @@ class PatternFactory {
         }
     }
     
-    private ElementParseResult parseEscapeSequence(String regex, int position) {
-        if (position + 1 >= regex.length()) {
-            return new ElementParseResult(new LiteralCharacterPattern('\\'), position + 1);
-        }
-        
-        char escaped = regex.charAt(position + 1);
-        switch (escaped) {
-            case 'd':
-                return new ElementParseResult(new DigitClassPattern(), position + 2);
-            case 'w':
-                return new ElementParseResult(new WordClassPattern(), position + 2);
-            default:
-                return new ElementParseResult(new LiteralCharacterPattern(escaped), position + 2);
-        }
-    }
+               private ElementParseResult parseEscapeSequence(String regex, int position) {
+               if (position + 1 >= regex.length()) {
+                   return new ElementParseResult(new LiteralCharacterPattern('\\'), position + 1);
+               }
+
+               char escaped = regex.charAt(position + 1);
+               switch (escaped) {
+                   case 'd':
+                       return new ElementParseResult(new DigitClassPattern(), position + 2);
+                   case 'w':
+                       return new ElementParseResult(new WordClassPattern(), position + 2);
+                   case '1':
+                       return new ElementParseResult(new BackreferencePattern(0), position + 2);
+                   default:
+                       return new ElementParseResult(new LiteralCharacterPattern(escaped), position + 2);
+               }
+           }
     
     private ElementParseResult parseCharacterGroup(String regex, int position) {
         int endPos = regex.indexOf(']', position + 1);
@@ -436,21 +498,22 @@ class PatternFactory {
         return new ElementParseResult(new CharacterGroupPattern(group), endPos + 1);
     }
     
-    private ElementParseResult parseGroup(String regex, int position) {
-        int endPos = findMatchingParen(regex, position);
-        if (endPos == -1) {
-            return new ElementParseResult(new LiteralCharacterPattern('('), position + 1);
-        }
-        
-        String groupContent = regex.substring(position + 1, endPos);
-        
-        if (groupContent.contains("|")) {
-            return parseAlternation(groupContent, endPos + 1);
-        } else {
-            PatternMatcher groupPattern = parsePattern(groupContent);
-            return new ElementParseResult(groupPattern, endPos + 1);
-        }
-    }
+               private ElementParseResult parseGroup(String regex, int position) {
+               int endPos = findMatchingParen(regex, position);
+               if (endPos == -1) {
+                   return new ElementParseResult(new LiteralCharacterPattern('('), position + 1);
+               }
+
+               String groupContent = regex.substring(position + 1, endPos);
+
+               if (groupContent.contains("|")) {
+                   return parseAlternation(groupContent, endPos + 1);
+               } else {
+                   PatternMatcher groupPattern = parsePattern(groupContent);
+                   // wrap in capturing group - for now just use index 0
+                   return new ElementParseResult(new CapturingGroupPattern(groupPattern, 0), endPos + 1);
+               }
+           }
     
     private ElementParseResult parseAlternation(String content, int nextPosition) {
         List<String> alternatives = splitOnTopLevelPipe(content);
@@ -572,7 +635,7 @@ public class Main {
     // For non-anchored patterns, try matching at each position
     if (!pattern.startsWith("^")) {
       for (int i = 0; i <= inputLine.length(); i++) {
-        MatchResult result = matcher.match(inputLine, i);
+        MatchResult result = matcher.match(inputLine, i, new ArrayList<>());
         if (result.matched) {
           return true;
         }
@@ -580,7 +643,7 @@ public class Main {
       return false;
     } else {
       // For anchored patterns, only try at position 0
-      MatchResult result = matcher.match(inputLine, 0);
+      MatchResult result = matcher.match(inputLine, 0, new ArrayList<>());
       return result.matched;
     }
   }

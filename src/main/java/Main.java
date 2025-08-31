@@ -143,12 +143,8 @@ public class Main {
               for (int testEnd = currentPos + 1; testEnd <= input.length() && !foundMatch; testEnd++) {
                 String testSubstring = input.substring(currentPos, testEnd);
                 if (matchesFrom(testSubstring, 0, subPattern)) {
-                  // Check if this is a complete match (not part of a longer match)
-                  if (testEnd == input.length() || 
-                      !matchesFrom(input.substring(currentPos, testEnd + 1), 0, subPattern)) {
-                    currentPos = testEnd;
-                    foundMatch = true;
-                  }
+                  currentPos = testEnd;
+                  foundMatch = true;
                 }
               }
               
@@ -362,6 +358,94 @@ public class Main {
     }
     parts.add(pattern.substring(last));
     return parts;
+  }
+
+  private static boolean matchesExactly(String input, String pattern) {
+    // Check if the input matches the pattern exactly by simulating the match process
+    return matchesFromExactly(input, 0, pattern) == input.length();
+  }
+  
+  private static int matchesFromExactly(String input, int startIndex, String pattern) {
+    // Similar to matchesFrom but returns the number of characters consumed, or -1 if no match
+    int i = startIndex;
+    int p = 0;
+
+    while (p < pattern.length()) {
+      if (i >= input.length()) {
+        // No more input: succeed only if remaining pattern can match empty
+        if (canMatchEmptyFromPatternIndex(pattern, p)) {
+          return i - startIndex;
+        }
+        return -1;
+      }
+
+      char pc = pattern.charAt(p);
+
+      if (pc == '$') {
+        if (p != pattern.length() - 1) {
+          throw new RuntimeException("Unhandled pattern: '$' must be at end of pattern");
+        }
+        return i == input.length() ? i - startIndex : -1;
+      }
+
+      // Handle parentheses with potential alternation (but not when followed by quantifiers)
+      int atomLen = determineAtomLength(pattern, p);
+      if (pc == '(' && (p + atomLen >= pattern.length() || (pattern.charAt(p + atomLen) != '+' && pattern.charAt(p + atomLen) != '?'))) {
+        int closeParen = findMatchingCloseParen(pattern, p);
+        if (closeParen == -1) {
+          throw new RuntimeException("Unhandled pattern: missing closing )");
+        }
+        
+        String subPattern = pattern.substring(p + 1, closeParen);
+        List<String> alternatives = splitByTopLevelOr(subPattern);
+        
+        if (alternatives.size() > 1) {
+          // Handle alternation within parentheses
+          for (String alt : alternatives) {
+            String altPattern = stripOuterParentheses(alt);
+            int consumed = matchesFromExactly(input, i, altPattern);
+            if (consumed >= 0) {
+              i += consumed;
+              p = closeParen + 1;
+              break;
+            }
+          }
+        } else {
+          // Simple parentheses without alternation
+          int consumed = matchesFromExactly(input, i, subPattern);
+          if (consumed < 0) {
+            return -1;
+          }
+          i += consumed;
+          p = closeParen + 1;
+        }
+        continue;
+      }
+
+      // Determine the current atom and whether it has '+' or '?' quantifier
+      boolean hasPlus = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '+';
+      boolean hasQuestion = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '?';
+
+      if (hasQuestion) {
+        // Optional - try to match, but don't fail if it doesn't
+        if (i < input.length() && matchesAtom(input.charAt(i), pattern, p, atomLen)) {
+          i++;
+        }
+        p += atomLen + 1;
+      } else if (hasPlus) {
+        // This shouldn't happen in the exact match context since + is handled separately
+        return -1;
+      } else {
+        // Single occurrence
+        if (i >= input.length() || !matchesAtom(input.charAt(i), pattern, p, atomLen)) {
+          return -1;
+        }
+        i++;
+        p += atomLen;
+      }
+    }
+
+    return i - startIndex;
   }
 
   private static int findMatchLength(String input, int startIndex, String pattern) {

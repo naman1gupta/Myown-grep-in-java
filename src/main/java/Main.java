@@ -148,35 +148,57 @@ class SequencePattern implements PatternMatcher {
             return matchOneOrMoreWithBacktrack(input, position, patternIndex, captures);
         }
         
-        MatchResult result = currentPattern.match(input, position, captures);
+        // Also check for OneOrMorePattern inside CapturingGroupPattern
+        if (currentPattern instanceof CapturingGroupPattern) {
+            CapturingGroupPattern cgp = (CapturingGroupPattern) currentPattern;
+            if (containsOneOrMorePattern(cgp)) {
+                return matchCapturingGroupWithOneOrMore(input, position, patternIndex, captures, cgp);
+            }
+        }
+        
+        // Create a copy of captures to avoid corruption during backtracking
+        List<String> capturesCopy = new ArrayList<>(captures);
+        MatchResult result = currentPattern.match(input, position, capturesCopy);
         if (!result.matched) {
             return MatchResult.failure();
         }
         
-        return matchWithBacktrack(input, result.endPosition, patternIndex + 1, captures);
+        MatchResult remainingResult = matchWithBacktrack(input, result.endPosition, patternIndex + 1, capturesCopy);
+        if (remainingResult.matched) {
+            // If successful, update the original captures
+            captures.clear();
+            captures.addAll(capturesCopy);
+            return remainingResult;
+        }
+        
+        return MatchResult.failure();
     }
     
     private MatchResult matchOneOrMoreWithBacktrack(String input, int position, int patternIndex, List<String> captures) {
         OneOrMorePattern quantPattern = (OneOrMorePattern) patterns.get(patternIndex);
         PatternMatcher innerPattern = getInnerPattern(quantPattern);
         
+        // Collect all possible end positions for the + quantifier
+        List<Integer> possibleEnds = new ArrayList<>();
+        List<String> tempCaptures = new ArrayList<>(captures);
+        
         // Must match at least once
-        MatchResult first = innerPattern.match(input, position, captures);
+        MatchResult first = innerPattern.match(input, position, tempCaptures);
         if (!first.matched) {
             return MatchResult.failure();
         }
         
-        // Try different lengths, starting with the longest (greedy) and backing off
         int currentPos = first.endPosition;
-        List<Integer> possibleEnds = new ArrayList<>();
         possibleEnds.add(currentPos);
         
-        // Collect all possible end positions for the + quantifier
+        // Continue matching greedily to find all possible ends
         while (currentPos < input.length()) {
-            MatchResult next = innerPattern.match(input, currentPos, captures);
+            List<String> nextTempCaptures = new ArrayList<>(tempCaptures);
+            MatchResult next = innerPattern.match(input, currentPos, nextTempCaptures);
             if (!next.matched) {
                 break;
             }
+            tempCaptures = nextTempCaptures;
             currentPos = next.endPosition;
             possibleEnds.add(currentPos);
         }
@@ -184,8 +206,23 @@ class SequencePattern implements PatternMatcher {
         // Try from longest to shortest (backtracking)
         for (int i = possibleEnds.size() - 1; i >= 0; i--) {
             int endPos = possibleEnds.get(i);
-            MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1, captures);
+            
+            // Re-create the captures state for this specific length
+            List<String> backtrackCaptures = new ArrayList<>(captures);
+            int tempPos = position;
+            
+            // Re-execute the + pattern up to this specific end position
+            for (int j = 0; j < i + 1; j++) {
+                MatchResult match = innerPattern.match(input, tempPos, backtrackCaptures);
+                if (!match.matched) break;
+                tempPos = match.endPosition;
+            }
+            
+            MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1, backtrackCaptures);
             if (remainingResult.matched) {
+                // Update original captures only on success
+                captures.clear();
+                captures.addAll(backtrackCaptures);
                 return remainingResult;
             }
         }
@@ -195,6 +232,112 @@ class SequencePattern implements PatternMatcher {
     
     private PatternMatcher getInnerPattern(OneOrMorePattern pattern) {
         return pattern.getInnerPattern();
+    }
+    
+    private boolean containsOneOrMorePattern(CapturingGroupPattern cgp) {
+        // Use reflection to check if the inner pattern is OneOrMorePattern
+        try {
+            java.lang.reflect.Field field = CapturingGroupPattern.class.getDeclaredField("pattern");
+            field.setAccessible(true);
+            PatternMatcher innerPattern = (PatternMatcher) field.get(cgp);
+            return innerPattern instanceof OneOrMorePattern;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
+    private MatchResult matchCapturingGroupWithOneOrMore(String input, int position, int patternIndex, 
+                                                       List<String> captures, CapturingGroupPattern cgp) {
+        try {
+            // Get the inner OneOrMorePattern
+            java.lang.reflect.Field patternField = CapturingGroupPattern.class.getDeclaredField("pattern");
+            patternField.setAccessible(true);
+            OneOrMorePattern oneOrMore = (OneOrMorePattern) patternField.get(cgp);
+            
+            java.lang.reflect.Field indexField = CapturingGroupPattern.class.getDeclaredField("groupIndex");
+            indexField.setAccessible(true);
+            int groupIndex = (Integer) indexField.get(cgp);
+            
+            // Implement backtracking for the capturing group with OneOrMore
+            PatternMatcher innerPattern = oneOrMore.getInnerPattern();
+            
+            // Collect all possible end positions for the + quantifier
+            List<Integer> possibleEnds = new ArrayList<>();
+            List<String> tempCaptures = new ArrayList<>(captures);
+            
+            // Must match at least once
+            MatchResult first = innerPattern.match(input, position, tempCaptures);
+            if (!first.matched) {
+                return MatchResult.failure();
+            }
+            
+            int currentPos = first.endPosition;
+            possibleEnds.add(currentPos);
+            
+            // Continue matching greedily to find all possible ends
+            while (currentPos < input.length()) {
+                List<String> nextTempCaptures = new ArrayList<>(tempCaptures);
+                MatchResult next = innerPattern.match(input, currentPos, nextTempCaptures);
+                if (!next.matched) {
+                    break;
+                }
+                tempCaptures = nextTempCaptures;
+                currentPos = next.endPosition;
+                possibleEnds.add(currentPos);
+            }
+            
+            // Try from longest to shortest (backtracking)
+            for (int i = possibleEnds.size() - 1; i >= 0; i--) {
+                int endPos = possibleEnds.get(i);
+                String matchedText = input.substring(position, endPos);
+                
+                // Re-create the captures state for this specific length
+                List<String> backtrackCaptures = new ArrayList<>(captures);
+                
+                // Ensure enough space for group capture
+                while (backtrackCaptures.size() <= groupIndex) {
+                    backtrackCaptures.add(null);
+                }
+                
+                // Re-execute the + pattern up to this specific end position to capture correctly
+                int tempPos = position;
+                for (int j = 0; j < i + 1; j++) {
+                    MatchResult match = innerPattern.match(input, tempPos, backtrackCaptures);
+                    if (!match.matched) break;
+                    tempPos = match.endPosition;
+                }
+                
+                // Set the group capture for this backtrack attempt
+                backtrackCaptures.set(groupIndex, matchedText);
+                
+                MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1, backtrackCaptures);
+                if (remainingResult.matched) {
+                    // Update original captures only on success
+                    captures.clear();
+                    captures.addAll(backtrackCaptures);
+                    return remainingResult;
+                }
+            }
+            
+            return MatchResult.failure();
+            
+        } catch (Exception e) {
+            // Fallback to normal matching if reflection fails
+            List<String> capturesCopy = new ArrayList<>(captures);
+            MatchResult result = cgp.match(input, position, capturesCopy);
+            if (!result.matched) {
+                return MatchResult.failure();
+            }
+            
+            MatchResult remainingResult = matchWithBacktrack(input, result.endPosition, patternIndex + 1, capturesCopy);
+            if (remainingResult.matched) {
+                captures.clear();
+                captures.addAll(capturesCopy);
+                return remainingResult;
+            }
+            
+            return MatchResult.failure();
+        }
     }
 }
 
@@ -251,6 +394,9 @@ class OneOrMorePattern implements PatternMatcher {
     
     @Override
     public MatchResult match(String input, int position, List<String> captures) {
+        // This is called when + is used standalone (not in a sequence with backtracking)
+        // For backtracking with sequences, see SequencePattern.matchOneOrMoreWithBacktrack
+        
         // gotta match at least once
         MatchResult first = pattern.match(input, position, captures);
         if (!first.matched) {
@@ -695,7 +841,8 @@ public class Main {
     // For non-anchored patterns, try matching at each position
     if (!pattern.startsWith("^")) {
       for (int i = 0; i <= inputLine.length(); i++) {
-        MatchResult result = matcher.match(inputLine, i, new ArrayList<>());
+        List<String> captures = new ArrayList<>();
+        MatchResult result = matcher.match(inputLine, i, captures);
         if (result.matched) {
           return true;
         }
@@ -703,7 +850,8 @@ public class Main {
       return false;
     } else {
       // For anchored patterns, only try at position 0
-      MatchResult result = matcher.match(inputLine, 0, new ArrayList<>());
+      List<String> captures = new ArrayList<>();
+      MatchResult result = matcher.match(inputLine, 0, captures);
       return result.matched;
     }
   }

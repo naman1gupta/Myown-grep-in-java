@@ -515,16 +515,17 @@ class PatternFactory {
                }
            }
     
-    private ElementParseResult parseAlternation(String content, int nextPosition) {
-        List<String> alternatives = splitOnTopLevelPipe(content);
-        List<PatternMatcher> patterns = new ArrayList<>();
-        
-        for (String alt : alternatives) {
-            patterns.add(parsePattern(alt));
-        }
-        
-        return new ElementParseResult(new AlternationPattern(patterns), nextPosition);
-    }
+               private ElementParseResult parseAlternation(String content, int nextPosition) {
+               List<String> alternatives = splitOnTopLevelPipe(content);
+               List<PatternMatcher> patterns = new ArrayList<>();
+
+               for (String alt : alternatives) {
+                   patterns.add(parsePattern(alt));
+               }
+
+               // wrap in capturing group - for now just use index 0
+               return new ElementParseResult(new CapturingGroupPattern(new AlternationPattern(patterns), 0), nextPosition);
+           }
     
     private List<String> splitOnTopLevelPipe(String content) {
         List<String> parts = new ArrayList<>();

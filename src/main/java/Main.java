@@ -1121,6 +1121,7 @@ public class Main {
     } else {
       System.exit(1);
     }
+    
   }
   
   private static boolean searchInDirectoryRecursiveHelper(String pattern, Path directory, boolean foundAnyMatch) throws IOException {

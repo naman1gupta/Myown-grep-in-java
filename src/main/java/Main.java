@@ -384,6 +384,7 @@ class BackreferencePattern implements PatternMatcher {
  * Factory for creating pattern matchers from regex strings.
  */
 class PatternFactory {
+    private int groupCounter = 0;
     
     public PatternMatcher createPattern(String regex) {
         if (regex == null || regex.isEmpty()) {
@@ -483,6 +484,22 @@ class PatternFactory {
                        return new ElementParseResult(new WordClassPattern(), position + 2);
                    case '1':
                        return new ElementParseResult(new BackreferencePattern(0), position + 2);
+                   case '2':
+                       return new ElementParseResult(new BackreferencePattern(1), position + 2);
+                   case '3':
+                       return new ElementParseResult(new BackreferencePattern(2), position + 2);
+                   case '4':
+                       return new ElementParseResult(new BackreferencePattern(3), position + 2);
+                   case '5':
+                       return new ElementParseResult(new BackreferencePattern(4), position + 2);
+                   case '6':
+                       return new ElementParseResult(new BackreferencePattern(5), position + 2);
+                   case '7':
+                       return new ElementParseResult(new BackreferencePattern(6), position + 2);
+                   case '8':
+                       return new ElementParseResult(new BackreferencePattern(7), position + 2);
+                   case '9':
+                       return new ElementParseResult(new BackreferencePattern(8), position + 2);
                    default:
                        return new ElementParseResult(new LiteralCharacterPattern(escaped), position + 2);
                }
@@ -510,8 +527,9 @@ class PatternFactory {
                    return parseAlternation(groupContent, endPos + 1);
                } else {
                    PatternMatcher groupPattern = parsePattern(groupContent);
-                   // wrap in capturing group - for now just use index 0
-                   return new ElementParseResult(new CapturingGroupPattern(groupPattern, 0), endPos + 1);
+                   // wrap in capturing group with proper index
+                   int groupIndex = groupCounter++;
+                   return new ElementParseResult(new CapturingGroupPattern(groupPattern, groupIndex), endPos + 1);
                }
            }
     
@@ -523,8 +541,9 @@ class PatternFactory {
                    patterns.add(parsePattern(alt));
                }
 
-               // wrap in capturing group - for now just use index 0
-               return new ElementParseResult(new CapturingGroupPattern(new AlternationPattern(patterns), 0), nextPosition);
+               // wrap in capturing group with proper index
+               int groupIndex = groupCounter++;
+               return new ElementParseResult(new CapturingGroupPattern(new AlternationPattern(patterns), groupIndex), nextPosition);
            }
     
     private List<String> splitOnTopLevelPipe(String content) {

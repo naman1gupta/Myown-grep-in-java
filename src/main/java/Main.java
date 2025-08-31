@@ -386,6 +386,11 @@ class BackreferencePattern implements PatternMatcher {
 class PatternFactory {
     private int groupCounter = 0;
     
+    // Helper class to track group assignments
+    private static class GroupAssignment {
+        int nextIndex = 0;
+    }
+    
         public PatternMatcher createPattern(String regex) {
         if (regex == null || regex.isEmpty()) {
             return new EmptyPattern();
@@ -397,22 +402,26 @@ class PatternFactory {
         // Handle anchors
         if (regex.startsWith("^") && regex.endsWith("$")) {
             String innerRegex = regex.substring(1, regex.length() - 1);
-            PatternMatcher innerPattern = parsePattern(innerRegex);
+            PatternMatcher innerPattern = parsePatternWithGroups(innerRegex, new GroupAssignment());
             return new StartAnchorPattern(new EndAnchorPattern(innerPattern));
         } else if (regex.startsWith("^")) {
             String innerRegex = regex.substring(1);
-            PatternMatcher innerPattern = parsePattern(innerRegex);
+            PatternMatcher innerPattern = parsePatternWithGroups(innerRegex, new GroupAssignment());
             return new StartAnchorPattern(innerPattern);
         } else if (regex.endsWith("$")) {
             String innerRegex = regex.substring(0, regex.length() - 1);
-            PatternMatcher innerPattern = parsePattern(innerRegex);
+            PatternMatcher innerPattern = parsePatternWithGroups(innerRegex, new GroupAssignment());
             return new EndAnchorPattern(innerPattern);
         }
         
-        return parsePattern(regex);
+        return parsePatternWithGroups(regex, new GroupAssignment());
     }
     
     private PatternMatcher parsePattern(String regex) {
+        return parsePatternWithGroups(regex, new GroupAssignment());
+    }
+    
+    private PatternMatcher parsePatternWithGroups(String regex, GroupAssignment assignment) {
         if (regex.isEmpty()) {
             return new EmptyPattern();
         }
@@ -421,7 +430,7 @@ class PatternFactory {
         int i = 0;
         
         while (i < regex.length()) {
-            ElementParseResult result = parseElementWithQuantifier(regex, i);
+            ElementParseResult result = parseElementWithQuantifierWithGroups(regex, i, assignment);
             
             sequence.add(result.pattern);
             i = result.nextPosition;
@@ -435,7 +444,11 @@ class PatternFactory {
     }
     
     private ElementParseResult parseElementWithQuantifier(String regex, int position) {
-        ElementParseResult baseResult = parseElementBase(regex, position);
+        return parseElementWithQuantifierWithGroups(regex, position, new GroupAssignment());
+    }
+    
+    private ElementParseResult parseElementWithQuantifierWithGroups(String regex, int position, GroupAssignment assignment) {
+        ElementParseResult baseResult = parseElementBaseWithGroups(regex, position, assignment);
         int nextPos = baseResult.nextPosition;
         
         // Check for quantifiers
@@ -458,6 +471,10 @@ class PatternFactory {
     }
     
     private ElementParseResult parseElementBase(String regex, int position) {
+        return parseElementBaseWithGroups(regex, position, new GroupAssignment());
+    }
+    
+    private ElementParseResult parseElementBaseWithGroups(String regex, int position, GroupAssignment assignment) {
         char c = regex.charAt(position);
         
         switch (c) {
@@ -468,7 +485,7 @@ class PatternFactory {
             case '[':
                 return parseCharacterGroup(regex, position);
             case '(':
-                return parseGroup(regex, position);
+                return parseGroupWithAssignment(regex, position, assignment);
             default:
                 return new ElementParseResult(new LiteralCharacterPattern(c), position + 1);
         }
@@ -519,20 +536,24 @@ class PatternFactory {
     }
     
                private ElementParseResult parseGroup(String regex, int position) {
+               return parseGroupWithAssignment(regex, position, new GroupAssignment());
+           }
+           
+           private ElementParseResult parseGroupWithAssignment(String regex, int position, GroupAssignment assignment) {
                int endPos = findMatchingParen(regex, position);
                if (endPos == -1) {
                    return new ElementParseResult(new LiteralCharacterPattern('('), position + 1);
                }
 
-               // assign group index first, before parsing content
-               int groupIndex = groupCounter++;
+               // assign group index first, before parsing content (recursive assignment)
+               int groupIndex = assignment.nextIndex++;
 
                String groupContent = regex.substring(position + 1, endPos);
 
                if (groupContent.contains("|")) {
-                   return parseAlternationWithIndex(groupContent, endPos + 1, groupIndex);
+                   return parseAlternationWithAssignment(groupContent, endPos + 1, assignment, groupIndex);
                } else {
-                   PatternMatcher groupPattern = parsePattern(groupContent);
+                   PatternMatcher groupPattern = parsePatternWithGroups(groupContent, assignment);
                    return new ElementParseResult(new CapturingGroupPattern(groupPattern, groupIndex), endPos + 1);
                }
            }
@@ -551,11 +572,15 @@ class PatternFactory {
            }
 
            private ElementParseResult parseAlternationWithIndex(String content, int nextPosition, int groupIndex) {
+               return parseAlternationWithAssignment(content, nextPosition, new GroupAssignment(), groupIndex);
+           }
+           
+           private ElementParseResult parseAlternationWithAssignment(String content, int nextPosition, GroupAssignment assignment, int groupIndex) {
                List<String> alternatives = splitOnTopLevelPipe(content);
                List<PatternMatcher> patterns = new ArrayList<>();
 
                for (String alt : alternatives) {
-                   patterns.add(parsePattern(alt));
+                   patterns.add(parsePatternWithGroups(alt, assignment));
                }
 
                return new ElementParseResult(new CapturingGroupPattern(new AlternationPattern(patterns), groupIndex), nextPosition);

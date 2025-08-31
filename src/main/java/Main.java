@@ -126,29 +126,37 @@ public class Main {
           String subPattern = pattern.substring(p + 1, p + atomLen - 1);
           int nextP = p + atomLen + 1; // skip atom and '+'
           
-          // For now, let's handle this by trying to match the subpattern multiple times
-          // This is a simplified approach that should work for the test case
-          int currentPos = i;
-          boolean matchedAtLeastOnce = false;
-          
-          while (currentPos < input.length()) {
-            // Try to match the subpattern at current position
-            boolean foundMatch = false;
-            for (int endPos = currentPos; endPos <= input.length(); endPos++) {
-              if (matchesFrom(input, currentPos, subPattern)) {
-                // Check if we can match the rest of the pattern from this position
-                if (matchesFrom(input, endPos, pattern.substring(nextP))) {
-                  return true;
+          // Try different numbers of repetitions, starting with the maximum possible
+          for (int repetitions = 1; repetitions <= 5; repetitions++) { // Limit to avoid infinite loops
+            boolean canMatch = true;
+            int currentPos = i;
+            
+            // Try to match 'repetitions' number of the subpattern
+            for (int rep = 0; rep < repetitions; rep++) {
+              if (currentPos >= input.length()) {
+                canMatch = false;
+                break;
+              }
+              
+              // Try to match one instance of the subpattern
+              boolean foundMatch = false;
+              for (int endPos = currentPos + 1; endPos <= input.length(); endPos++) {
+                if (matchesFrom(input, currentPos, subPattern)) {
+                  currentPos = endPos;
+                  foundMatch = true;
+                  break;
                 }
-                currentPos = endPos;
-                matchedAtLeastOnce = true;
-                foundMatch = true;
+              }
+              
+              if (!foundMatch) {
+                canMatch = false;
                 break;
               }
             }
             
-            if (!foundMatch) {
-              break;
+            // If we can match this many repetitions, try to match the rest
+            if (canMatch && matchesFrom(input, currentPos, pattern.substring(nextP))) {
+              return true;
             }
           }
           

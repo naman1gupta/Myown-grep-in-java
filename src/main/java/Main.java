@@ -82,6 +82,41 @@ public class Main {
         return i == input.length();
       }
 
+      // Handle parentheses with potential alternation
+      if (pc == '(') {
+        int closeParen = findMatchingCloseParen(pattern, p);
+        if (closeParen == -1) {
+          throw new RuntimeException("Unhandled pattern: missing closing )");
+        }
+        
+        String subPattern = pattern.substring(p + 1, closeParen);
+        List<String> alternatives = splitByTopLevelOr(subPattern);
+        
+        if (alternatives.size() > 1) {
+          // Handle alternation within parentheses
+          for (String alt : alternatives) {
+            String altPattern = stripOuterParentheses(alt);
+            if (matchesFrom(input, i, altPattern + pattern.substring(closeParen + 1))) {
+              return true;
+            }
+          }
+          return false;
+        } else {
+          // Simple parentheses without alternation
+          if (!matchesFrom(input, i, subPattern)) {
+            return false;
+          }
+          // Find how much input was consumed by the subpattern
+          int consumed = findConsumedLength(input, i, subPattern);
+          if (consumed == -1) {
+            return false;
+          }
+          i += consumed;
+          p = closeParen + 1;
+          continue;
+        }
+      }
+
       // Determine the current atom and whether it has '+' or '?' quantifier
       int atomLen = determineAtomLength(pattern, p);
       boolean hasPlus = (p + atomLen < pattern.length()) && pattern.charAt(p + atomLen) == '+';
@@ -268,5 +303,50 @@ public class Main {
     }
     parts.add(pattern.substring(last));
     return parts;
+  }
+
+  private static int findMatchingCloseParen(String pattern, int openParenIndex) {
+    int depth = 0;
+    boolean escaped = false;
+    boolean inBracket = false;
+    
+    for (int i = openParenIndex; i < pattern.length(); i++) {
+      char c = pattern.charAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (c == '[') {
+        if (!inBracket) inBracket = true;
+      } else if (c == ']' && inBracket) {
+        inBracket = false;
+      } else if (!inBracket) {
+        if (c == '(') {
+          depth++;
+        } else if (c == ')') {
+          depth--;
+          if (depth == 0) {
+            return i;
+          }
+        }
+      }
+    }
+    return -1; // No matching close parenthesis found
+  }
+
+  private static int findConsumedLength(String input, int startIndex, String pattern) {
+    // Try to match the pattern from startIndex and return how many characters were consumed
+    for (int len = 0; len <= input.length() - startIndex; len++) {
+      if (matchesFrom(input, startIndex, pattern) && 
+          (startIndex + len == input.length() || 
+           canMatchEmptyFromPatternIndex(pattern, 0))) {
+        return len;
+      }
+    }
+    return -1; // Could not match
   }
 }

@@ -133,17 +133,68 @@ class SequencePattern implements PatternMatcher {
     
     @Override
     public MatchResult match(String input, int position) {
-        int currentPos = position;
-        
-        for (PatternMatcher pattern : patterns) {
-            MatchResult result = pattern.match(input, currentPos);
-            if (!result.matched) {
-                return MatchResult.failure();
-            }
-            currentPos = result.endPosition;
+        return matchWithBacktrack(input, position, 0);
+    }
+    
+    private MatchResult matchWithBacktrack(String input, int position, int patternIndex) {
+        if (patternIndex >= patterns.size()) {
+            return MatchResult.success(position);
         }
         
-        return MatchResult.success(currentPos);
+        PatternMatcher currentPattern = patterns.get(patternIndex);
+        
+        // Special handling for OneOrMorePattern to enable backtracking
+        if (currentPattern instanceof OneOrMorePattern) {
+            return matchOneOrMoreWithBacktrack(input, position, patternIndex);
+        }
+        
+        MatchResult result = currentPattern.match(input, position);
+        if (!result.matched) {
+            return MatchResult.failure();
+        }
+        
+        return matchWithBacktrack(input, result.endPosition, patternIndex + 1);
+    }
+    
+    private MatchResult matchOneOrMoreWithBacktrack(String input, int position, int patternIndex) {
+        OneOrMorePattern quantPattern = (OneOrMorePattern) patterns.get(patternIndex);
+        PatternMatcher innerPattern = getInnerPattern(quantPattern);
+        
+        // Must match at least once
+        MatchResult first = innerPattern.match(input, position);
+        if (!first.matched) {
+            return MatchResult.failure();
+        }
+        
+        // Try different lengths, starting with the longest (greedy) and backing off
+        int currentPos = first.endPosition;
+        List<Integer> possibleEnds = new ArrayList<>();
+        possibleEnds.add(currentPos);
+        
+        // Collect all possible end positions for the + quantifier
+        while (currentPos < input.length()) {
+            MatchResult next = innerPattern.match(input, currentPos);
+            if (!next.matched) {
+                break;
+            }
+            currentPos = next.endPosition;
+            possibleEnds.add(currentPos);
+        }
+        
+        // Try from longest to shortest (backtracking)
+        for (int i = possibleEnds.size() - 1; i >= 0; i--) {
+            int endPos = possibleEnds.get(i);
+            MatchResult remainingResult = matchWithBacktrack(input, endPos, patternIndex + 1);
+            if (remainingResult.matched) {
+                return remainingResult;
+            }
+        }
+        
+        return MatchResult.failure();
+    }
+    
+    private PatternMatcher getInnerPattern(OneOrMorePattern pattern) {
+        return pattern.getInnerPattern();
     }
 }
 
@@ -194,6 +245,10 @@ class OneOrMorePattern implements PatternMatcher {
         this.pattern = pattern;
     }
     
+    public PatternMatcher getInnerPattern() {
+        return pattern;
+    }
+    
     @Override
     public MatchResult match(String input, int position) {
         // Must match at least once
@@ -202,10 +257,16 @@ class OneOrMorePattern implements PatternMatcher {
             return MatchResult.failure();
         }
         
+        // For + quantifier, we need to be greedy but this is handled at a higher level
+        // in the context of the full pattern matching. For now, just return the first match.
+        // The proper implementation would require the context of the remaining pattern
+        // to do backtracking, which our current architecture doesn't support well.
+        
+        // Try to match greedily first
         int currentPos = first.endPosition;
         
         // Try to match as many more times as possible (greedy)
-        while (currentPos <= input.length()) {
+        while (currentPos < input.length()) {
             MatchResult next = pattern.match(input, currentPos);
             if (!next.matched) {
                 break;
@@ -405,25 +466,25 @@ class PatternFactory {
     private List<String> splitOnTopLevelPipe(String content) {
         List<String> parts = new ArrayList<>();
         int start = 0;
-        int depth = 0;
-        boolean escaped = false;
-        boolean inBracket = false;
+      int depth = 0;
+      boolean escaped = false;
+      boolean inBracket = false;
         
         for (int i = 0; i < content.length(); i++) {
             char c = content.charAt(i);
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (c == '\\') {
-                escaped = true;
-                continue;
-            }
-            if (c == '[') {
-                if (!inBracket) inBracket = true;
-            } else if (c == ']' && inBracket) {
-                inBracket = false;
-            } else if (!inBracket) {
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (c == '\\') {
+          escaped = true;
+          continue;
+        }
+        if (c == '[') {
+          if (!inBracket) inBracket = true;
+        } else if (c == ']' && inBracket) {
+          inBracket = false;
+        } else if (!inBracket) {
                 if (c == '(') {
                     depth++;
                 } else if (c == ')') {
@@ -442,25 +503,25 @@ class PatternFactory {
     }
     
     private int findMatchingParen(String regex, int openPos) {
-        int depth = 0;
-        boolean escaped = false;
-        boolean inBracket = false;
+    int depth = 0;
+    boolean escaped = false;
+    boolean inBracket = false;
         
         for (int i = openPos; i < regex.length(); i++) {
             char c = regex.charAt(i);
-            if (escaped) {
-                escaped = false;
-                continue;
-            }
-            if (c == '\\') {
-                escaped = true;
-                continue;
-            }
-            if (c == '[') {
-                if (!inBracket) inBracket = true;
-            } else if (c == ']' && inBracket) {
-                inBracket = false;
-            } else if (!inBracket) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (c == '[') {
+        if (!inBracket) inBracket = true;
+      } else if (c == ']' && inBracket) {
+        inBracket = false;
+      } else if (!inBracket) {
                 if (c == '(') {
                     depth++;
                 } else if (c == ')') {

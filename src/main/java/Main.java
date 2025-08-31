@@ -1,5 +1,7 @@
 import java.io.IOException;
 import java.util.Scanner;
+import java.util.ArrayList;
+import java.util.List;
 
 public class Main {
   public static void main(String[] args){
@@ -21,9 +23,36 @@ public class Main {
   }
 
   public static boolean matchPattern(String inputLine, String pattern) {
+    boolean anchoredAtStart = false;
     if (pattern.startsWith("^")) {
-      String anchored = pattern.substring(1);
-      return matchesFrom(inputLine, 0, anchored);
+      anchoredAtStart = true;
+      pattern = pattern.substring(1);
+    }
+
+    // Support simple grouping and alternation when the whole pattern is wrapped in parentheses
+    pattern = stripOuterParentheses(pattern);
+    List<String> alternatives = splitByTopLevelOr(pattern);
+
+    if (alternatives.size() > 1) {
+      for (String alt : alternatives) {
+        String altPattern = stripOuterParentheses(alt);
+        if (anchoredAtStart) {
+          if (matchesFrom(inputLine, 0, altPattern)) {
+            return true;
+          }
+        } else {
+          for (int start = 0; start < inputLine.length(); start++) {
+            if (matchesFrom(inputLine, start, altPattern)) {
+              return true;
+            }
+          }
+        }
+      }
+      return false;
+    }
+
+    if (anchoredAtStart) {
+      return matchesFrom(inputLine, 0, pattern);
     }
 
     for (int start = 0; start < inputLine.length(); start++) {
@@ -165,5 +194,79 @@ public class Main {
       return false;
     }
     return true;
+  }
+
+  private static String stripOuterParentheses(String pattern) {
+    while (pattern.length() >= 2 && pattern.charAt(0) == '(' && pattern.charAt(pattern.length() - 1) == ')') {
+      int depth = 0;
+      boolean valid = true;
+      boolean escaped = false;
+      boolean inBracket = false;
+      for (int i = 0; i < pattern.length(); i++) {
+        char c = pattern.charAt(i);
+        if (escaped) {
+          escaped = false;
+          continue;
+        }
+        if (c == '\\') {
+          escaped = true;
+          continue;
+        }
+        if (c == '[') {
+          if (!inBracket) inBracket = true;
+        } else if (c == ']' && inBracket) {
+          inBracket = false;
+        } else if (!inBracket) {
+          if (c == '(') depth++;
+          else if (c == ')') depth--;
+          if (depth == 0 && i != pattern.length() - 1) {
+            valid = false;
+            break;
+          }
+        }
+      }
+      if (valid && depth == 0) {
+        pattern = pattern.substring(1, pattern.length() - 1);
+      } else {
+        break;
+      }
+    }
+    return pattern;
+  }
+
+  private static List<String> splitByTopLevelOr(String pattern) {
+    List<String> parts = new ArrayList<>();
+    int last = 0;
+    int depth = 0;
+    boolean escaped = false;
+    boolean inBracket = false;
+    for (int i = 0; i < pattern.length(); i++) {
+      char c = pattern.charAt(i);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (c == '\\') {
+        escaped = true;
+        continue;
+      }
+      if (c == '[') {
+        if (!inBracket) inBracket = true;
+      } else if (c == ']' && inBracket) {
+        inBracket = false;
+      } else if (!inBracket) {
+        if (c == '(') depth++;
+        else if (c == ')') depth--;
+        else if (c == '|' && depth == 0) {
+          parts.add(pattern.substring(last, i));
+          last = i + 1;
+        }
+      }
+    }
+    if (parts.isEmpty()) {
+      return List.of(pattern);
+    }
+    parts.add(pattern.substring(last));
+    return parts;
   }
 }
